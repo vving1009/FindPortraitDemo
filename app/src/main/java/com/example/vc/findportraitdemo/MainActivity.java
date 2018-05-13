@@ -3,6 +3,7 @@ package com.example.vc.findportraitdemo;
 import android.app.Activity;
 import android.app.ProgressDialog;
 import android.content.CursorLoader;
+import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -15,6 +16,7 @@ import android.graphics.Rect;
 import android.media.ExifInterface;
 import android.media.FaceDetector;
 import android.media.FaceDetector.Face;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
@@ -27,8 +29,14 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.Toast;
 
-import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
+
+import id.zelory.compressor.Compressor;
+import top.zibin.luban.Luban;
+import top.zibin.luban.OnCompressListener;
+
+//import android.support.media.ExifInterface;
 
 public class MainActivity extends Activity implements OnClickListener {
 
@@ -45,6 +53,7 @@ public class MainActivity extends Activity implements OnClickListener {
     private ProgressDialog pd;
     private Bitmap bm;//选择的图片的Bitmap对象
     private Paint paint;//画人脸区域用到的Paint
+    Bitmap bitmap = null;
 
     private boolean hasDetected = false;//标记是否检测到人脸
 
@@ -52,7 +61,7 @@ public class MainActivity extends Activity implements OnClickListener {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        Log.d(TAG, "onCreate: " + Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).getAbsolutePath());
+        //Log.d(TAG, "onCreate: " + Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).getAbsolutePath());
         initView();
 
         paint = new Paint();
@@ -71,12 +80,13 @@ public class MainActivity extends Activity implements OnClickListener {
         Log.d(TAG, "onCreate: screenWidth=" + screenWidth + ",screenHeight=" + screenHeight);
 
         String[] columns = {MediaStore.Images.Media.DATA};
-        cursor = new CursorLoader(this, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, columns, null, null, null).loadInBackground();
+        cursor = new CursorLoader(this, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, columns, null, null, MediaStore.Images.Media.SIZE +" DESC").loadInBackground();
         /*cursor = getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, null ,MediaStore.Images.Media.MIME_TYPE + "=? or "+MediaStore.Images.Media.MIME_TYPE + "=? or "
                         + MediaStore.Images.Media.MIME_TYPE + "=?",
                 new String[] { "image/jpeg","image/png" ,"image/bmp"},
-                MediaStore.Images.Media.DATE_ADDED +" DESC");*/
+                MediaStore.Images.Media.SIZE +" DESC");*/
         fileColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+
     }
 
     /**
@@ -93,7 +103,7 @@ public class MainActivity extends Activity implements OnClickListener {
     /**
      * 从图库选择图片
      */
-    /*private void selectPicture() {
+    private void selectPicture() {
         Intent intent = new Intent();
         //intent.setAction(Intent.ACTION_GET_CONTENT);
         intent.setAction(Intent.ACTION_PICK);
@@ -119,7 +129,7 @@ public class MainActivity extends Activity implements OnClickListener {
             image.setImageBitmap(bm);
             hasDetected = false;
         }
-    }*/
+    }
 
     /**
      * 检测人脸
@@ -179,7 +189,7 @@ public class MainActivity extends Activity implements OnClickListener {
             case R.id.btn_select://选择图片
                 //selectPicture();
 
-                choosePicture();
+                loadPicture();
                 break;
             case R.id.btn_detect://检测人脸
                 detectFace();
@@ -187,22 +197,25 @@ public class MainActivity extends Activity implements OnClickListener {
         }
     }
 
-    private void choosePicture() {
+    private void loadPicture() {
 
         if (cursor.moveToNext()) {
             String imageFilePath = cursor.getString(fileColumn);
             //Bitmap bmp = BitmapFactory.decodeFile(imageFilePath);
-            Bitmap bmp = getbitMap(imageFilePath);
-            image.setImageBitmap(bmp);
+            bm = getbitMap(imageFilePath);
+            bm = bm.copy(Bitmap.Config.RGB_565, true);
+            Log.d(TAG, "loadPicture: bmp size="+bm.getByteCount() / 1024 / 1024);
+            Log.d(TAG, "loadPicture: bmp width="+bm.getWidth() + ",height="+bm.getHeight());
+            image.setImageBitmap(bm);
         }
     }
 
     private Bitmap getbitMap(String imageFilePath) { //加载图像的尺寸而不是图像本身
-        BitmapFactory.Options options = new BitmapFactory.Options();
+        /*BitmapFactory.Options options = new BitmapFactory.Options();
         options.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(imageFilePath, options);
         Log.d(TAG, "getbitMap: imageFilePath=" + imageFilePath);
-        Log.d(TAG, "getbitMap: options.outWidth=" + options.outWidth + ",options.outHeight=" + options.outHeight);
+        Log.d(TAG, "getbitMap: options.outWidth=" + options.outWidth + ",options.outHeight=" + options.outHeight);*/
         /*int widthRatio = (int) Math.ceil(options.outWidth / (float) DISPLAY_WIDTH);
         int heightRatio = (int) Math.ceil(options.outHeight / (float) DISPLAY_HEIGHT);
         Log.v("HEIGHTRATIO", "" + heightRatio);
@@ -224,15 +237,62 @@ public class MainActivity extends Activity implements OnClickListener {
         }*/
 //https://www.2cto.com/kf/201706/647898.html
         //https://blog.csdn.net/adam_ling/article/details/52346741
-        Bitmap bitmap = BitmapFactory.decodeFile(imageFilePath); //修复图片方向
+        /*Bitmap bitmap = BitmapFactory.decodeFile(imageFilePath); //修复图片方向
         Matrix m = repairBitmapDirection(imageFilePath);
         if (m != null) {
             bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), m, true);
         }
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out);
-        Log.d(TAG, "bitMap size= " + bitmap.getByteCount() / 1024);
-        return bitmap;
+        Log.d(TAG, "bitMap size= " + bitmap.getByteCount() / 1024);*/
+
+
+        /*Luban.with(this)
+                .load(imageFilePath)
+                .ignoreBy(100)
+                //.setTargetDir(getCacheDir().getAbsolutePath()+"/temp.jpg")
+                .setTargetDir(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).getAbsolutePath())
+                *//*.filter(new CompressionPredicate() {
+                    @Override
+                    public boolean apply(String path) {
+                        return !(TextUtils.isEmpty(path) || path.toLowerCase().endsWith(".gif"));
+                    }
+                })*//*
+                .setCompressListener(new OnCompressListener() {
+                    @Override
+                    public void onStart() {
+                        // TODO 压缩开始前调用，可以在方法内启动 loading UI
+                    }
+
+                    @Override
+                    public void onSuccess(File file) {
+                        // TODO 压缩成功后调用，返回压缩后的图片文件
+                        //Log.d(TAG, "onSuccess: "+file.getAbsolutePath());
+                        //bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
+                    }
+
+                    @Override
+                    public void onError(Throwable e) {
+                        // TODO 当压缩过程出现问题时调用
+                        e.printStackTrace();
+                    }
+                })
+                .launch();*/
+        File file = null;
+        try {
+            file = new Compressor(this)
+                    .setMaxWidth(640)
+                    .setMaxHeight(480)
+                    .setQuality(75)
+                    .setCompressFormat(Bitmap.CompressFormat.JPEG)
+                    .setDestinationDirectoryPath(Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_PICTURES).getAbsolutePath())
+                    .compressToFile(new File(imageFilePath));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        Log.d(TAG, "getbitMap: path="+file.getAbsolutePath());
+        return BitmapFactory.decodeFile(file.getAbsolutePath());
     }
 
     /**
@@ -302,6 +362,7 @@ public class MainActivity extends Activity implements OnClickListener {
         @Override
         protected void onPostExecute(Face[] result) {
             super.onPostExecute(result);
+
             pd.dismiss();
             if (result == null) {
                 Toast.makeText(MainActivity.this, "抱歉，图片中未检测到人脸", Toast.LENGTH_SHORT).show();
@@ -314,7 +375,7 @@ public class MainActivity extends Activity implements OnClickListener {
     /*
     * 当我们需要删除暂存区或分支上的文件, 同时工作区也不需要这个文件了, 可以使用
 1 git rm file_path
-2 git commit -m 'delete somefile'
+2 git commit -m 'delete somefile'4
 3 git push
 当我们需要删除暂存区或分支上的文件, 但本地又需要使用, 只是不希望这个文件被版本控制, 可以使用
 git rm -rf --cached file_path
@@ -323,6 +384,12 @@ git push
 
 https://www.cnblogs.com/weilantiankong/p/6144443.html
 https://www.cnblogs.com/pyer/p/4752770.html
+
+https://github.com/Curzibn/Luban
+https://github.com/zetbaitsu/Compressor
+https://blog.csdn.net/yinzhijiezhan/article/details/70139316
+https://blog.csdn.net/qq_25412055/article/details/53878655
+https://blog.csdn.net/copy_yuan/article/details/51353629
     *
     * */
 }
