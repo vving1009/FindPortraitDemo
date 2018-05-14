@@ -3,7 +3,6 @@ package com.example.vc.findportraitdemo;
 import android.app.Activity;
 import android.app.ProgressDialog;
 import android.content.CursorLoader;
-import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -16,7 +15,6 @@ import android.graphics.Rect;
 import android.media.ExifInterface;
 import android.media.FaceDetector;
 import android.media.FaceDetector.Face;
-import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
@@ -29,12 +27,25 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.Toast;
 
+import com.bumptech.glide.Glide;
+import com.bumptech.glide.load.engine.DiskCacheStrategy;
+
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
 
 import id.zelory.compressor.Compressor;
-import top.zibin.luban.Luban;
-import top.zibin.luban.OnCompressListener;
+import io.reactivex.Observable;
+import io.reactivex.ObservableEmitter;
+import io.reactivex.ObservableOnSubscribe;
+import io.reactivex.ObservableSource;
+import io.reactivex.Observer;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Function;
+import io.reactivex.functions.Predicate;
+import io.reactivex.schedulers.Schedulers;
 
 //import android.support.media.ExifInterface;
 
@@ -44,8 +55,10 @@ public class MainActivity extends Activity implements OnClickListener {
     private static final int REQUEST_CODE_SELECT_PIC = 120;
     private static final int MAX_FACE_NUM = 5;//最大可以检测出的人脸数量
     Cursor cursor;
-    int fileColumn;
+    int fileColumn, sizeColumn;
     int screenWidth, screenHeight;
+    Bitmap bitmap = null;
+    int portraitCount = 0;
     private int realFaceNum = 0;//实际检测出的人脸数量
     private Button selectBtn;
     private Button detectBtn;
@@ -53,57 +66,13 @@ public class MainActivity extends Activity implements OnClickListener {
     private ProgressDialog pd;
     private Bitmap bm;//选择的图片的Bitmap对象
     private Paint paint;//画人脸区域用到的Paint
-    Bitmap bitmap = null;
-
     private boolean hasDetected = false;//标记是否检测到人脸
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        //Log.d(TAG, "onCreate: " + Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).getAbsolutePath());
-        initView();
-
-        paint = new Paint();
-        paint.setColor(Color.BLUE);
-        paint.setStrokeWidth(2);
-        paint.setStyle(Paint.Style.STROKE);//设置话出的是空心方框而不是实心方块
-
-        pd = new ProgressDialog(this);
-        pd.setTitle("提示");
-        pd.setMessage("正在检测，请稍等");
-
-        DisplayMetrics dm = getResources().getDisplayMetrics();
-        screenWidth = dm.widthPixels;
-        screenHeight = dm.heightPixels;
-
-        Log.d(TAG, "onCreate: screenWidth=" + screenWidth + ",screenHeight=" + screenHeight);
-
-        String[] columns = {MediaStore.Images.Media.DATA};
-        cursor = new CursorLoader(this, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, columns, null, null, MediaStore.Images.Media.SIZE +" DESC").loadInBackground();
-        /*cursor = getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, null ,MediaStore.Images.Media.MIME_TYPE + "=? or "+MediaStore.Images.Media.MIME_TYPE + "=? or "
-                        + MediaStore.Images.Media.MIME_TYPE + "=?",
-                new String[] { "image/jpeg","image/png" ,"image/bmp"},
-                MediaStore.Images.Media.SIZE +" DESC");*/
-        fileColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
-
-    }
-
-    /**
-     * 控件初始化
-     */
-    private void initView() {
-        selectBtn = findViewById(R.id.btn_select);
-        selectBtn.setOnClickListener(this);
-        detectBtn = findViewById(R.id.btn_detect);
-        detectBtn.setOnClickListener(this);
-        image = findViewById(R.id.image);
-    }
+    private List<String> paths = new ArrayList<>();
 
     /**
      * 从图库选择图片
      */
-    private void selectPicture() {
+    /*private void selectPicture() {
         Intent intent = new Intent();
         //intent.setAction(Intent.ACTION_GET_CONTENT);
         intent.setAction(Intent.ACTION_PICK);
@@ -129,6 +98,48 @@ public class MainActivity extends Activity implements OnClickListener {
             image.setImageBitmap(bm);
             hasDetected = false;
         }
+    }*/
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        //Log.d(TAG, "onCreate: " + Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM).getAbsolutePath());
+        initView();
+
+        paint = new Paint();
+        paint.setColor(Color.BLUE);
+        paint.setStrokeWidth(2);
+        paint.setStyle(Paint.Style.STROKE);//设置话出的是空心方框而不是实心方块
+
+        pd = new ProgressDialog(this);
+        pd.setTitle("提示");
+        pd.setMessage("正在检测，请稍等");
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        screenWidth = dm.widthPixels;
+        screenHeight = dm.heightPixels;
+
+        Log.d(TAG, "onCreate: screenWidth=" + screenWidth + ",screenHeight=" + screenHeight);
+
+        String[] columns = {MediaStore.Images.Media.DATA, MediaStore.Images.Media.SIZE};
+        cursor = new CursorLoader(this, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, columns, null, null, MediaStore.Images.Media.SIZE + " DESC").loadInBackground();
+        /*cursor = getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, null ,MediaStore.Images.Media.MIME_TYPE + "=? or "+MediaStore.Images.Media.MIME_TYPE + "=? or "
+                        + MediaStore.Images.Media.MIME_TYPE + "=?",
+                new String[] { "image/jpeg","image/png" ,"image/bmp"},
+                MediaStore.Images.Media.SIZE +" DESC");*/
+        fileColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+        sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.SIZE);
+    }
+
+    /**
+     * 控件初始化
+     */
+    private void initView() {
+        selectBtn = findViewById(R.id.btn_select);
+        selectBtn.setOnClickListener(this);
+        detectBtn = findViewById(R.id.btn_detect);
+        detectBtn.setOnClickListener(this);
+        image = findViewById(R.id.image);
     }
 
     /**
@@ -188,26 +199,68 @@ public class MainActivity extends Activity implements OnClickListener {
         switch (arg0.getId()) {
             case R.id.btn_select://选择图片
                 //selectPicture();
-
-                loadPicture();
+                //loadPicture();
+                //loadAllPicture();
+                //loadPictureWithGlide();
+                detectPicture();
                 break;
             case R.id.btn_detect://检测人脸
                 detectFace();
+                File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).getAbsolutePath() + "/temp/");
+                if (file.exists()) {
+                    file.delete();
+                }
                 break;
         }
+    }
+
+    private void loadAllPicture() {
+        while (cursor.moveToNext()) {
+            int size = cursor.getInt(sizeColumn);
+            if (size < 100000) break;
+            String imageFilePath = cursor.getString(fileColumn);
+            paths.add(imageFilePath);
+        }
+        Toast.makeText(this, "load done.", Toast.LENGTH_LONG).show();
     }
 
     private void loadPicture() {
 
         if (cursor.moveToNext()) {
             String imageFilePath = cursor.getString(fileColumn);
+            int size = cursor.getInt(sizeColumn);
+            Log.d(TAG, "loadPicture: size in provider =" + size);
             //Bitmap bmp = BitmapFactory.decodeFile(imageFilePath);
             bm = getbitMap(imageFilePath);
             bm = bm.copy(Bitmap.Config.RGB_565, true);
-            Log.d(TAG, "loadPicture: bmp size="+bm.getByteCount() / 1024 / 1024);
-            Log.d(TAG, "loadPicture: bmp width="+bm.getWidth() + ",height="+bm.getHeight());
+            Log.d(TAG, "loadPicture: bmp size=" + bm.getByteCount() / 1024 / 1024);
+            Log.d(TAG, "loadPicture: bmp width=" + bm.getWidth() + ",height=" + bm.getHeight());
             image.setImageBitmap(bm);
+            hasDetected = false;
         }
+    }
+
+    private void loadPictureWithGlide() {
+        if (cursor.moveToNext()) {
+            String imageFilePath = cursor.getString(fileColumn);
+            int size = cursor.getInt(sizeColumn);
+            Log.d(TAG, "loadPicture: size in provider =" + size);
+            //Bitmap bmp = BitmapFactory.decodeFile(imageFilePath);
+            try {
+                bm = Glide.with(this).load(imageFilePath).asBitmap().centerCrop().into(1000, 1000).get();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            } catch (ExecutionException e) {
+                e.printStackTrace();
+            }
+
+            bm = bm.copy(Bitmap.Config.RGB_565, true);
+            Log.d(TAG, "loadPicture: bmp size=" + bm.getByteCount() / 1024 / 1024);
+            Log.d(TAG, "loadPicture: bmp width=" + bm.getWidth() + ",height=" + bm.getHeight());
+            image.setImageBitmap(bm);
+            hasDetected = false;
+        }
+
     }
 
     private Bitmap getbitMap(String imageFilePath) { //加载图像的尺寸而不是图像本身
@@ -279,19 +332,8 @@ public class MainActivity extends Activity implements OnClickListener {
                 })
                 .launch();*/
         File file = null;
-        try {
-            file = new Compressor(this)
-                    .setMaxWidth(640)
-                    .setMaxHeight(480)
-                    .setQuality(75)
-                    .setCompressFormat(Bitmap.CompressFormat.JPEG)
-                    .setDestinationDirectoryPath(Environment.getExternalStoragePublicDirectory(
-                            Environment.DIRECTORY_PICTURES).getAbsolutePath())
-                    .compressToFile(new File(imageFilePath));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        Log.d(TAG, "getbitMap: path="+file.getAbsolutePath());
+        file = new Compressor.Builder(this).setMaxWidth(3000).setMaxHeight(3000).setQuality(75).setCompressFormat(Bitmap.CompressFormat.JPEG).setDestinationDirectoryPath(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).getAbsolutePath()).build().compressToFile(new File(imageFilePath));
+        Log.d(TAG, "getbitMap: path=" + file.getAbsolutePath());
         return BitmapFactory.decodeFile(file.getAbsolutePath());
     }
 
@@ -334,6 +376,87 @@ public class MainActivity extends Activity implements OnClickListener {
         return null;
     }
 
+    private void detectPicture() {
+        loadAllPicture();
+        Observable.fromIterable(paths).subscribeOn(Schedulers.io()).observeOn(Schedulers.io()).filter(new Predicate<String>() {
+            @Override
+            public boolean test(String path) throws Exception {
+                Log.d(TAG, "test: path=" + path);
+                bm = Glide.with(MainActivity.this)
+                        .load(path)
+                        .asBitmap()
+                        .diskCacheStrategy(DiskCacheStrategy.NONE)
+                        //.override(1000, 1000)
+                        .fitCenter()
+                        .into(1000, 1000)
+                        .get();
+                //bm = bm.copy(Bitmap.Config.RGB_565, true);
+                /*runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        image.setImageBitmap(bm);
+                    }
+                });*/
+                Log.d(TAG, "test: bm size=" + bm.getByteCount() / 1024 / 1024);
+                Log.d(TAG, "test: bm size=" + bm.getWidth() + ",height=" + bm.getHeight());
+                FaceDetector faceDetector = new FaceDetector(bm.getWidth(), bm.getHeight(), MAX_FACE_NUM);
+                Face[] faces = new Face[MAX_FACE_NUM];
+                realFaceNum = faceDetector.findFaces(bm, faces);
+                Log.d(TAG, "test: realFaceNum=" + realFaceNum);
+                bm.recycle();
+                if (realFaceNum > 0) {
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+        }).flatMap(new Function<String, ObservableSource<File>>() {
+            @Override
+            public ObservableSource<File> apply(final String path) throws Exception {
+                return Observable.create(new ObservableOnSubscribe<File>() {
+                    @Override
+                    public void subscribe(ObservableEmitter<File> observableEmitter) throws Exception {
+                        File file = new Compressor.Builder(MainActivity.this)
+                                .setMaxWidth(2000)
+                                .setMaxHeight(2000)
+                                .setQuality(75)
+                                .setCompressFormat(Bitmap.CompressFormat.JPEG)
+                                .setDestinationDirectoryPath(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).getAbsolutePath() + "/temp/").build().compressToFile(new File(path));
+                        Log.d(TAG, "subscribe: find picture path = " + file.getAbsolutePath());
+                        portraitCount++;
+                        observableEmitter.onNext(file);
+                    }
+                });
+            }
+        }).subscribe(new Observer<File>() {
+            Disposable mDisposable;
+
+            @Override
+            public void onSubscribe(Disposable disposable) {
+                Log.d(TAG, "onSubscribe: ");
+                mDisposable = disposable;
+            }
+
+            @Override
+            public void onNext(File file) {
+                Log.d(TAG, "onNext: portraitCount="+portraitCount);
+                if (portraitCount >= 20) {
+                    mDisposable.dispose();
+                }
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+
+            }
+
+            @Override
+            public void onComplete() {
+
+            }
+        });
+    }
+
     /**
      * 检测图像中的人脸需要一些时间，所以放到AsyncTask中去执行
      *
@@ -350,7 +473,7 @@ public class MainActivity extends Activity implements OnClickListener {
         @Override
         protected Face[] doInBackground(Void... arg0) {
             //最关键的就是下面三句代码
-            FaceDetector faceDetector = new FaceDetector(bm.getWidth(), bm.getHeight(), MAX_FACE_NUM);
+            FaceDetector faceDetector = new FaceDetector(3000, 3000, MAX_FACE_NUM);
             Face[] faces = new Face[MAX_FACE_NUM];
             realFaceNum = faceDetector.findFaces(bm, faces);
             if (realFaceNum > 0) {
