@@ -3,6 +3,7 @@ package com.example.vc.findportraitdemo;
 import android.app.Activity;
 import android.app.ProgressDialog;
 import android.content.CursorLoader;
+import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -15,6 +16,7 @@ import android.graphics.Rect;
 import android.media.ExifInterface;
 import android.media.FaceDetector;
 import android.media.FaceDetector.Face;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
@@ -68,11 +70,12 @@ public class MainActivity extends Activity implements OnClickListener {
     private Paint paint;//画人脸区域用到的Paint
     private boolean hasDetected = false;//标记是否检测到人脸
     private List<String> paths = new ArrayList<>();
+    private final boolean USE_GLIDE = false;
 
     /**
      * 从图库选择图片
      */
-    /*private void selectPicture() {
+    private void selectPicture() {
         Intent intent = new Intent();
         //intent.setAction(Intent.ACTION_GET_CONTENT);
         intent.setAction(Intent.ACTION_PICK);
@@ -90,15 +93,46 @@ public class MainActivity extends Activity implements OnClickListener {
             Cursor cursor = getContentResolver().query(selectedImage, filePathColumn, null, null, null);
             cursor.moveToFirst();
             int columnIndex = cursor.getColumnIndex(filePathColumn[0]);
-            String selectedImagePath = cursor.getString(columnIndex);
-            bm = BitmapFactory.decodeFile(selectedImagePath);
-            //要使用Android内置的人脸识别，需要将Bitmap对象转为RGB_565格式，否则无法识别
-            bm = bm.copy(Bitmap.Config.RGB_565, true);
+            final String selectedImagePath = cursor.getString(columnIndex);
+            Log.d(TAG, "onActivityResult: path=" + selectedImagePath);
+            if (USE_GLIDE) {
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            bm = Glide.with(MainActivity.this)
+                                    .load(selectedImagePath)
+                                    .asBitmap()
+                                    .diskCacheStrategy(DiskCacheStrategy.NONE)
+                                    .fitCenter()
+                                    .into(1200, 1200)
+                                    .get();
+                            Log.d(TAG, "run: bmg width="+bm.getWidth()+", height="+bm.getHeight());
+                            Log.d(TAG, "run: bmg size="+(float)bm.getByteCount() / 1024/ 1024);
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    image.setImageBitmap(bm);
+                                }
+                            });
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        } catch (ExecutionException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }).start();
+            } else {
+                bm = BitmapFactory.decodeFile(selectedImagePath);
+                //要使用Android内置的人脸识别，需要将Bitmap对象转为RGB_565格式，否则无法识别
+                bm = bm.copy(Bitmap.Config.RGB_565, true);
+                image.setImageBitmap(bm);
+            }
             cursor.close();
-            image.setImageBitmap(bm);
             hasDetected = false;
         }
-    }*/
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -198,19 +232,34 @@ public class MainActivity extends Activity implements OnClickListener {
     public void onClick(View arg0) {
         switch (arg0.getId()) {
             case R.id.btn_select://选择图片
-                //selectPicture();
+                selectPicture();
                 //loadPicture();
                 //loadAllPicture();
                 //loadPictureWithGlide();
-                detectPicture();
+                //detectPicture();
                 break;
             case R.id.btn_detect://检测人脸
                 detectFace();
-                File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).getAbsolutePath() + "/temp/");
+                //File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).getAbsolutePath() + "/temp/");
+                File file = new File(getExternalCacheDir() + "/portrait/");
                 if (file.exists()) {
-                    file.delete();
+                    deleteFile(file);
                 }
                 break;
+        }
+    }
+
+    private void deleteFile(File file) {
+        if (file.exists()) {
+            if (file.isDirectory()) {
+                File[] files = file.listFiles();
+                for (File f : files) {
+                    deleteFile(f);
+                }
+                file.delete();
+            } else if (file.isFile() && file.exists()) {
+                file.delete();
+            }
         }
     }
 
@@ -264,21 +313,21 @@ public class MainActivity extends Activity implements OnClickListener {
     }
 
     private Bitmap getbitMap(String imageFilePath) { //加载图像的尺寸而不是图像本身
-        /*BitmapFactory.Options options = new BitmapFactory.Options();
+        BitmapFactory.Options options = new BitmapFactory.Options();
         options.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(imageFilePath, options);
         Log.d(TAG, "getbitMap: imageFilePath=" + imageFilePath);
-        Log.d(TAG, "getbitMap: options.outWidth=" + options.outWidth + ",options.outHeight=" + options.outHeight);*/
-        /*int widthRatio = (int) Math.ceil(options.outWidth / (float) DISPLAY_WIDTH);
-        int heightRatio = (int) Math.ceil(options.outHeight / (float) DISPLAY_HEIGHT);
+        Log.d(TAG, "getbitMap: options.outWidth=" + options.outWidth + ",options.outHeight=" + options.outHeight);
+        int widthRatio = (int) Math.ceil(options.outWidth / (float) 1080);
+        int heightRatio = (int) Math.ceil(options.outHeight / (float) 1920);
         Log.v("HEIGHTRATIO", "" + heightRatio);
         Log.v("WIDTHRATIO", "" + widthRatio); //如果两个比例都大于1，那么图像的一条边将大于屏幕
         if (heightRatio > 1 && widthRatio > 1) {
             options.inSampleSize = Math.max(heightRatio, widthRatio);
-        }*/
+        }
         //对它进行真正的解码
-        //options.inJustDecodeBounds = false; // 此处为false，不只是解码
-        //Bitmap bitmap = BitmapFactory.decodeFile(imageFilePath, options); //修复图片方向
+        options.inJustDecodeBounds = false; // 此处为false，不只是解码
+        Bitmap bitmap = BitmapFactory.decodeFile(imageFilePath, options); //修复图片方向
 
         /*options.inSampleSize = 1;
         if (widthRatio > 1 || heightRatio > 1) {
@@ -388,7 +437,7 @@ public class MainActivity extends Activity implements OnClickListener {
                         .diskCacheStrategy(DiskCacheStrategy.NONE)
                         //.override(1000, 1000)
                         .fitCenter()
-                        .into(1000, 1000)
+                        .into(1500, 1500)
                         .get();
                 //bm = bm.copy(Bitmap.Config.RGB_565, true);
                 /*runOnUiThread(new Runnable() {
@@ -421,7 +470,10 @@ public class MainActivity extends Activity implements OnClickListener {
                                 .setMaxHeight(2000)
                                 .setQuality(75)
                                 .setCompressFormat(Bitmap.CompressFormat.JPEG)
-                                .setDestinationDirectoryPath(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).getAbsolutePath() + "/temp/").build().compressToFile(new File(path));
+                                //.setDestinationDirectoryPath(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).getAbsolutePath() + "/temp/")
+                                .setDestinationDirectoryPath(getExternalCacheDir() + "/portrait/")
+                                .build()
+                                .compressToFile(new File(path));
                         Log.d(TAG, "subscribe: find picture path = " + file.getAbsolutePath());
                         portraitCount++;
                         observableEmitter.onNext(file);
@@ -473,7 +525,9 @@ public class MainActivity extends Activity implements OnClickListener {
         @Override
         protected Face[] doInBackground(Void... arg0) {
             //最关键的就是下面三句代码
-            FaceDetector faceDetector = new FaceDetector(3000, 3000, MAX_FACE_NUM);
+            Log.d(TAG, "doInBackground: bmg width="+bm.getWidth()+", height="+bm.getHeight());
+            Log.d(TAG, "doInBackground: bmg size="+(float)bm.getByteCount() / 1024/ 1024);
+            FaceDetector faceDetector = new FaceDetector(bm.getWidth(), bm.getHeight(), MAX_FACE_NUM);
             Face[] faces = new Face[MAX_FACE_NUM];
             realFaceNum = faceDetector.findFaces(bm, faces);
             if (realFaceNum > 0) {
@@ -494,27 +548,6 @@ public class MainActivity extends Activity implements OnClickListener {
             }
         }
     }
-
-    /*
-    * 当我们需要删除暂存区或分支上的文件, 同时工作区也不需要这个文件了, 可以使用
-1 git rm file_path
-2 git commit -m 'delete somefile'4
-3 git push
-当我们需要删除暂存区或分支上的文件, 但本地又需要使用, 只是不希望这个文件被版本控制, 可以使用
-git rm -rf --cached file_path
-git commit -m 'delete remote somefile'
-git push
-
-https://www.cnblogs.com/weilantiankong/p/6144443.html
-https://www.cnblogs.com/pyer/p/4752770.html
-
-https://github.com/Curzibn/Luban
-https://github.com/zetbaitsu/Compressor
-https://blog.csdn.net/yinzhijiezhan/article/details/70139316
-https://blog.csdn.net/qq_25412055/article/details/53878655
-https://blog.csdn.net/copy_yuan/article/details/51353629
-    *
-    * */
 }
 
 
